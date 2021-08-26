@@ -1,0 +1,168 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <title>Charge — Keep Talking and Nobody Explodes Module</title>
+    <meta name="viewport" content="initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="css/normalize.css">
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+    <link rel="stylesheet" type="text/css" href="css/font.css">
+    <script src="js/ktane-utils.js"></script>
+</head>
+
+<body>
+    <div class="section">
+        <div class="page page-bg-01">
+            <div class="page-header">
+                <span class="page-header-doc-title">Keep Talking and Nobody Explodes Mod</span>
+                <span class="page-header-section-title">Charge</span>
+            </div>
+            <div class="page-content">
+                <img src="img/Component/Charge.svg" class="diagram">
+                <h2>On the Subject of Charge</h2>
+                <p class="flavour-text">Note: this module is powered by smoke.<br>If you let the smoke out, this module stops working.</p>
+                <p>
+                    The module is a electronic circuit. It has four main components: battery, statuslight, discharger, and powergrid.
+                    A detailed diagram of the module can be found on page 3.
+                </p>
+                <p>
+                    When the module is activated, it shows the required charge level on the battery. This value is indicated in joules (J).
+                    Charge the battery to the required level (no more and no less) and connect the battery to the statuslight in order to solve the module.
+                </p>
+                <p>
+                    The Powergrid consists of 24 power sources arranged in three rows of eight columns.
+                    Each power source is represented by a diode that cyclically switches between two colors.
+                    Use the table on page 2 to determine the power of each energy source.
+                    The energy source can change the colors with which it flashes, but it will never change its activity and power.
+                </p>
+                <p>
+                    The module has a short circuit protection system. On the right side of the module, you can see the lock indicator.
+                    If it is off (gray) then you can use the switches, otherwise, if it is red, you will not be able to use the switches.
+                    A locking occurs when the battery starts charging or discharging and lasts for exactly one second.
+                    After the end of the locking, switches #1 and #3 will change to state 2 (see page 3 for switches information).
+                </p>
+                <p>The battery is charged by connecting it to the powergrid. Charging is only permitted under the following conditions:</p>
+                <ul>
+                    <li>The sum of the power of the connected energy sources is greater than zero.</li>
+                    <li>On each row the number of connected active energy sources is odd or zero.</li>
+                    <li>Exactly the same set of powersources has been used since the last discharge.</li>
+                </ul>
+                <p>
+                    If any of the conditions are not met, the battery will be automatically disconnected from the powergrid and you will receive a strike.
+                    Since after the start of charging the battery, the locking mode will turn on,
+                    and exactly one second later the battery will be automatically disconnected from the powergrid,
+                    the battery charge level will be increased by the number of joules (J) equal to the total number of watts (W) of connected energy sources.
+                </p>
+                <p>The battery is discharged by connecting it to the spark gap. The battery will be <b>fully</b> discharged in one second.</p>
+            </div>
+            <div class="page-footer relative-footer">Page 1 of 3</div>
+        </div>
+        <div class="page page-bg-01">
+            <div class="page-header">
+                <span class="page-header-doc-title">Keep Talking and Nobody Explodes Mod</span>
+                <span class="page-header-section-title">Charge</span>
+            </div>
+            <div class="page-content">
+                <h2>Power sources' power</h2>
+                <p>
+                    For each row of the table, if the condition is true,
+                    then the power sources in the "True colors" column are active and have a power equal to the value in the "Power" column,
+                    and the power sources in the "False colors" column are inactive and have a power equal to 0 W.
+                    Otherwise, if the condition is false, then the power sources in the "True colors" column are inactive and have a power of 0 W,
+                    and the power sources in the "False colors" column are active and have a power equal to the value in the "Power" column.
+                </p>
+                <table>
+                    <tr>
+                        <td>Power</td>
+                        <td>True colors</td>
+                        <td>False colors</td>
+                        <td>Condition</td>
+                    </tr>
+                    <tr>
+                        <td>5 W</td>
+                        <td>Red/Magenta</td>
+                        <td>Red/Green</td>
+                        <td>** Last digit of any 2FA code is even</td>
+                    </tr>
+                    <tr>
+                        <td>11 W</td>
+                        <td>Green/Magenta</td>
+                        <td>Blue/Black</td>
+                        <td>At least 2 indicators</td>
+                    </tr>
+                    <tr>
+                        <td>13 W</td>
+                        <td>Green/Black</td>
+                        <td>White/Magenta</td>
+                        <td>Starting time is less than 59 minutes</td>
+                    </tr>
+                    <tr>
+                        <td>7 W</td>
+                        <td>Red/Black</td>
+                        <td>Red/Blue</td>
+                        <td>Exactly 3 digits in serial number</td>
+                    </tr>
+                    <tr>
+                        <td>3 W</td>
+                        <td>Blue/Magenta</td>
+                        <td>Red/White</td>
+                        <td>** The number of solved modules greater than 13</td>
+                    </tr>
+                    <tr>
+                        <td>17 W</td>
+                        <td>Green/White</td>
+                        <td>Green/Blue</td>
+                        <td>Has rca port</td>
+                    </tr>
+                    <tr>
+                        <td>2 W</td>
+                        <td>Black/Magenta</td>
+                        <td>Blue/White</td>
+                        <td>** No strikes</td>
+                    </tr>
+                </table>
+                <p style="font-size: 14px;">
+                    ** When a condition changes its validity,
+                    the colors of the power sources of this row are swapped so that the power sources do not change their activity and power.
+                </p>
+                <h2>Switches</h2>
+                <p>
+                    Switches are the only element of the module that you can interact with. To interact with a switch, press it.
+                    If locking is not enabled, the switch will change its state.
+                    Let's designate the states of the switch as state 1 (when the green plug is connected to the red one)
+                    and as state 2 (when the green plug is connected to the blue one).
+                </p>
+                <ul>
+                    <li>Switch #1 is used to discharge the battery (state 1).</li>
+                    <li>Switch #2 is used to select the component connected to the battery: statuslight (state 1) or powergrid (state 2).</li>
+                    <li>Switch #3 is used to select the component connected to the powergrid: battery (state 1) or statuslight (state 2).</li>
+                    <li>Switch #4 is used to select the component connected to the statuslight: powergrid (state 1) or battery (state 2).</li>
+                    <li>The rest of the switches are used to select the powersources to be connected.</li>
+                </ul>
+            </div>
+            <div class="page-footer relative-footer">Page 2 of 3</div>
+        </div>
+        <div class="page page-bg-01">
+            <div class="page-header">
+                <span class="page-header-doc-title">Keep Talking and Nobody Explodes Mod</span>
+                <span class="page-header-section-title">Charge</span>
+            </div>
+            <div class="page-content">
+                <h2>Power sources</h2>
+                <p>
+                    Power sources must be connected in a strict order: only the positive pole of the battery can be connected to the left and top (plus sign in the diagram),
+                    and only negative pole to the right and bottom (minus sign in the diagram).
+                    To make sure that the switches' states you choose connects the set of powersources you need, you can connect the statuslight to the powergrid.
+                    If the statuslight turns white and the power sources you need have a green outline, then you have selected the correct state of the switches.
+                    <b>Attention</b>: when connecting statuslight, the second and third conditions from the page 1 are not checked.
+                </p>
+                <h2>Module diagram</h2>
+            </div>
+            <div class="page-footer relative-footer">Page 3 of 3</div>
+        </div>
+    </div>
+</body>
+
+</html>
