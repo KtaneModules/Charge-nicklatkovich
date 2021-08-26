@@ -1143,6 +1143,8 @@ MonoBehaviour:
     type: 2}
   PowerSourcePrefab: {fileID: 114932089567024318, guid: 4af90a890c806e64b99586585ef773f5,
     type: 2}
+  SwitchPrefab: {fileID: 114497395636221006, guid: 9bb53332d294a1a4fb159a2332b23a70,
+    type: 2}
 --- !u!114 &114209781027245804
 MonoBehaviour:
   m_ObjectHideFlags: 1

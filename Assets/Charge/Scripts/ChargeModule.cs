@@ -5,6 +5,7 @@ public class ChargeModule : MonoBehaviour {
 	public GameObject ObjectsContainer;
 	public WireComponent WirePrefab;
 	public PowerSourceComponent PowerSourcePrefab;
+	public SwitchComponent SwitchPrefab;
 
 	private void Start() {
 		CreateWire(new Vector3(280, 0, 136), new Vector3(296, 0, 136), true); // battery => grid | statulight || discharge
@@ -90,6 +91,25 @@ public class ChargeModule : MonoBehaviour {
 		CreateWire(new Vector3(80, 0, 456), new Vector3(80, 0, 136), true); // grid => battery | statuslight
 		CreateWire(new Vector3(80, 0, 136), new Vector3(104, 0, 136), false); // grid => battery
 		CreateWire(new Vector3(104, 0, 136), new Vector3(120, 0, 136), true); // grid => battery || discharge
+
+		CreateSwitch(new Vector3(296, 0, 136), 0, false); // switch 1
+		CreateSwitch(new Vector3(352, 0, 152), 90, false); // switch 2
+		CreateSwitch(new Vector3(288, 0, 176), 0, false); // switch 3
+		CreateSwitch(new Vector3(400, 0, 176), 180, true); // switch 4
+		CreateSwitch(new Vector3(256, 0, 176), 90, false); // switch input 1-8
+		CreateSwitch(new Vector3(176, 0, 208), 90, true); // switch input 1-4
+		CreateSwitch(new Vector3(336, 0, 208), 90, Random.Range(0, 2) == 0); // switch input 5-8
+		CreateSwitch(new Vector3(136, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 1-2
+		CreateSwitch(new Vector3(216, 0, 240), 90 , true); // switch input 3-4
+		CreateSwitch(new Vector3(296, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 5-6
+		CreateSwitch(new Vector3(376, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 7-8
+		CreateSwitch(new Vector3(144, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 1-2
+		CreateSwitch(new Vector3(224, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 3-4
+		CreateSwitch(new Vector3(304, 0, 392), 270, true); // switch output 5-6
+		CreateSwitch(new Vector3(384, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 7-8
+		CreateSwitch(new Vector3(184, 0, 424), 270, Random.Range(0, 2) == 0); // switch output 1-4
+		CreateSwitch(new Vector3(344, 0, 424), 270, true); // switch output 5-8
+		CreateSwitch(new Vector3(264, 0, 456), 270, false); // switch output 1-8
 	}
 
 	private WireComponent CreateWire(Vector3 from, Vector3 to, bool active) {
@@ -111,6 +131,17 @@ public class ChargeModule : MonoBehaviour {
 		result.transform.localRotation = Quaternion.identity;
 		result.color = new KeyValuePair<Color, Color>(Random.ColorHSV(), Random.ColorHSV());
 		result.active = active;
+		return result;
+	}
+
+	private SwitchComponent CreateSwitch(Vector3 pos, float rotation, bool defaultState) {
+		SwitchComponent result = Instantiate(SwitchPrefab);
+		result.transform.parent = ObjectsContainer.transform;
+		pos.z = 512 - pos.z;
+		result.transform.localPosition = pos;
+		result.transform.localScale = Vector3.one;
+		result.transform.localRotation = Quaternion.Euler(0f, rotation, 0f);
+		result.state = defaultState;
 		return result;
 	}
 }
