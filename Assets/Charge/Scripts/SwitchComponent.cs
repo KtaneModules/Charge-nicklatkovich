@@ -2,6 +2,7 @@
 
 public class SwitchComponent : MonoBehaviour {
 	public GameObject Connector;
+	public KMSelectable Selectable;
 
 	private bool _state; public bool state { get { return _state; } set { if (_state == value) return; _state = value; UpdateConnector(); } }
 
