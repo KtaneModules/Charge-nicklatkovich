@@ -3,213 +3,286 @@ using System.Linq;
 using UnityEngine;
 
 public class ChargeModule : MonoBehaviour {
+	private static int moduleIdCounter = 1;
+
 	public GameObject ObjectsContainer;
+	public GameObject StatusLight;
+	public Material StatusLightLitMaterial;
+	public AudioClip[] SwitchSounds;
+	public AudioClip ChargeSound;
 	public KMSelectable Selectable;
+	public KMBombModule Module;
+	public KMBombInfo BombInfo;
+	public KMAudio Audio;
 	public WireComponent WirePrefab;
 	public PowerSourceComponent PowerSourcePrefab;
 	public SwitchComponent SwitchPrefab;
+	public ResistorComponent ResistorPrefab;
+	public BatteryComponent Battery;
+	public LockComponent Lock;
 
+	private bool lightScaleSet = false;
+	private bool solved = false;
+	private bool activated = false;
+	private bool prevPowergridActive = true;
+	private float lockingStartsAt;
+	private int chargeFrom;
+	private int chargeTo;
+	private int moduleId;
+	private int startingTimeInMinutes;
+	private Material defaultStatusLightMaterial;
 	private CircuitState state = new CircuitState();
+	private ChargePuzzle puzzle;
 	private SwitchComponent[] _switches = new SwitchComponent[18];
+	private PowerSourceComponent[][] _powerSources = new PowerSourceComponent[ChargePuzzle.WIDTH][];
 	private List<WireComponent> wires = new List<WireComponent>();
+	private List<ResistorComponent> resistors = new List<ResistorComponent>();
+	private Light StatusLightSource;
+	private Renderer StatusLightRenderer;
+	private HashSet<KeyValuePair<int, int>> usedConnections = new HashSet<KeyValuePair<int, int>>();
 
 	private void Start() {
-		CreateWire(new Vector3(280, 0, 136), new Vector3(296, 0, 136), true); // battery => grid | statulight || discharge
-		CreateWire(new Vector3(312, 0, 144), new Vector3(352, 0, 144), false); // battery => grid | statuslight
-		CreateWire(new Vector3(352, 0, 144), new Vector3(352, 0, 152), false); // battery => grid | statuslight
-		CreateWire(new Vector3(344, 0, 168), new Vector3(304, 0, 168), false); // battery => grid
-		CreateWire(new Vector3(288, 0, 176), new Vector3(256, 0, 176), true); // battery | statuslight => grid
-		CreateWire(new Vector3(248, 0, 192), new Vector3(176, 0, 192), true, (state) => state.powergridActive && state.powergridStart < 5); // grid input 1-4
-		CreateWire(new Vector3(176, 0, 192), new Vector3(176, 0, 208), true, (state) => state.powergridActive && state.powergridStart < 5); // grid input 1-4
-		CreateWire(new Vector3(264, 0, 192), new Vector3(264, 0, 208), false, (state) => state.powergridActive && state.powergridStart > 4); // grid input 5-8
-		CreateWire(new Vector3(264, 0, 208), new Vector3(336, 0, 208), false, (state) => state.powergridActive && state.powergridStart > 4); // grid input 5-8
-		CreateWire(new Vector3(168, 0, 224), new Vector3(136, 0, 224), false, (state) => state.powergridActive && state.powergridStart < 3); // grid input 1-2
-		CreateWire(new Vector3(136, 0, 224), new Vector3(136, 0, 240), false, (state) => state.powergridActive && state.powergridStart < 3); // grid input 1-2
-		CreateWire(new Vector3(184, 0, 224), new Vector3(216, 0, 224), true, (state) => ( // grid input 3-4
+		moduleId = moduleIdCounter++;
+		puzzle = new ChargePuzzle();
+		Debug.LogFormat("[Charge #{0}] Power sources:", moduleId);
+		for (int j = 0; j < ChargePuzzle.HEIGHT; j++) {
+			Debug.LogFormat("[Charge #{0}] Row {1}: [{2}]", moduleId, j + 1, puzzle.powergrid.Select((column) => column[j]).Select((cell) => (
+				(cell.active ? ChargePuzzle.groups[cell.groupIndex].power : 0).ToString() + " W"
+			)).Join(", "));
+		}
+		Debug.LogFormat("[Charge #{0}] Required energy level: {1} J", moduleId, puzzle.requiredChargeLevel);
+		Debug.LogFormat("[Charge #{0}] Solution example: [{1}]", moduleId, puzzle.solutionExample.Select((conn) => (
+			string.Format("{0}-{1}", conn.Key + 1, conn.Value + 1)
+		)).Join("; "));
+		for (int i = 0; i < ChargePuzzle.WIDTH; i++) _powerSources[i] = new PowerSourceComponent[ChargePuzzle.HEIGHT];
+		StatusLightSource = StatusLight.transform.GetChild(0).GetComponent<Light>();
+		StatusLightRenderer = StatusLight.transform.GetChild(1).GetChild(Application.isEditor ? 2 : 0).GetComponent<Renderer>();
+		StatusLightSource.transform.parent = StatusLightRenderer.transform;
+		defaultStatusLightMaterial = StatusLightRenderer.material;
+		StatusLightRenderer.material = StatusLightLitMaterial;
+		CreateWire(new Vector3(280, 0, 136), new Vector3(296, 0, 136), (state) => { // battery => grid | statulight || discharge
+			if (state.discharge && Battery.charge > 0) return true;
+			if (state.crossState == CircuitState.CrossState.CHARGE && state.powergridActive) return true;
+			return state.crossState == CircuitState.CrossState.SUBMIT;
+		});
+		CreateWire(new Vector3(312, 0, 144), new Vector3(352, 0, 144), (state) => ( // battery => grid | statuslight
+			(state.crossState == CircuitState.CrossState.CHARGE && state.powergridActive) || state.crossState == CircuitState.CrossState.SUBMIT
+		));
+		CreateWire(new Vector3(352, 0, 144), new Vector3(352, 0, 152), (state) => ( // battery => grid | statuslight
+			(state.crossState == CircuitState.CrossState.CHARGE && state.powergridActive) || state.crossState == CircuitState.CrossState.SUBMIT
+		));
+		CreateWire(new Vector3(344, 0, 168), new Vector3(304, 0, 168), (state) => ( // battery => grid
+			state.crossState == CircuitState.CrossState.CHARGE && state.powergridActive
+		));
+		CreateWire(new Vector3(288, 0, 176), new Vector3(256, 0, 176), (state) => state.powergridActive); // battery | statuslight => grid
+		CreateWire(new Vector3(248, 0, 192), new Vector3(176, 0, 192), (state) => state.powergridActive && state.powergridStart < 5); // grid input 1-4
+		CreateWire(new Vector3(176, 0, 192), new Vector3(176, 0, 208), (state) => state.powergridActive && state.powergridStart < 5); // grid input 1-4
+		CreateWire(new Vector3(264, 0, 192), new Vector3(264, 0, 208), (state) => state.powergridActive && state.powergridStart > 4); // grid input 5-8
+		CreateWire(new Vector3(264, 0, 208), new Vector3(336, 0, 208), (state) => state.powergridActive && state.powergridStart > 4); // grid input 5-8
+		CreateWire(new Vector3(168, 0, 224), new Vector3(136, 0, 224), (state) => state.powergridActive && state.powergridStart < 3); // grid input 1-2
+		CreateWire(new Vector3(136, 0, 224), new Vector3(136, 0, 240), (state) => state.powergridActive && state.powergridStart < 3); // grid input 1-2
+		CreateWire(new Vector3(184, 0, 224), new Vector3(216, 0, 224), (state) => ( // grid input 3-4
 			state.powergridActive && state.powergridStart < 5 && state.powergridStart > 2
 		));
-		CreateWire(new Vector3(216, 0, 224), new Vector3(216, 0, 240), true, (state) => ( // grid input 3-4
+		CreateWire(new Vector3(216, 0, 224), new Vector3(216, 0, 240), (state) => ( // grid input 3-4
 			state.powergridActive && state.powergridStart < 5 && state.powergridStart > 2
 		));
-		CreateWire(new Vector3(328, 0, 224), new Vector3(296, 0, 224), false, (state) => ( // grid input 5-6
+		CreateWire(new Vector3(328, 0, 224), new Vector3(296, 0, 224), (state) => ( // grid input 5-6
 			state.powergridActive && state.powergridStart < 7 && state.powergridStart > 4
 		));
-		CreateWire(new Vector3(296, 0, 224), new Vector3(296, 0, 240), false, (state) => ( // grid input 5-6
+		CreateWire(new Vector3(296, 0, 224), new Vector3(296, 0, 240), (state) => ( // grid input 5-6
 			state.powergridActive && state.powergridStart < 7 && state.powergridStart > 4
 		));
-		CreateWire(new Vector3(344, 0, 224), new Vector3(376, 0, 224), false, (state) => state.powergridActive && state.powergridStart > 6); // grid input 7-8
-		CreateWire(new Vector3(376, 0, 224), new Vector3(376, 0, 240), false, (state) => state.powergridActive && state.powergridStart > 6); // grid input 7-8
+		CreateWire(new Vector3(344, 0, 224), new Vector3(376, 0, 224), (state) => state.powergridActive && state.powergridStart > 6); // grid input 7-8
+		CreateWire(new Vector3(376, 0, 224), new Vector3(376, 0, 240), (state) => state.powergridActive && state.powergridStart > 6); // grid input 7-8
 		for (int i = 0; i < 8; i++) {
 			int iLock = i + 1;
 
 			// grid input {i}
 			float xOffset = 104 + i * 40;
-			bool activeInput = i == 3;
-			System.Func<CircuitState, bool> onInputChange = (state) => state.powergridStart == iLock && state.powergridEnd >= iLock;
-			if (i % 2 == 1) CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset + 16, 0, 256), activeInput, onInputChange);
-			else CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset + 24, 0, 256), activeInput, onInputChange);
+			System.Func<CircuitState, bool> onInputChange = (state) => state.powergridActive && state.powergridStart == iLock && state.powergridEnd >= iLock;
+			if (i % 2 == 1) CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset + 16, 0, 256), onInputChange);
+			else CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset + 24, 0, 256), onInputChange);
 			if (i == 0) {
-				CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset, 0, 360), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset, 0, 280), new Vector3(xOffset + 8, 0, 280), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset, 0, 320), new Vector3(xOffset + 8, 0, 320), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset, 0, 360), new Vector3(xOffset + 8, 0, 360), activeInput, onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset, 0, 360), onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 280), new Vector3(xOffset + 8, 0, 280), onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 320), new Vector3(xOffset + 8, 0, 320), onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 360), new Vector3(xOffset + 8, 0, 360), onInputChange);
 			} else {
-				CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset, 0, 344), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset + 16, 0, 256), new Vector3(xOffset + 16, 0, 272), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset, 0, 344), new Vector3(xOffset + 16, 0, 344), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset + 16, 0, 344), new Vector3(xOffset + 16, 0, 352), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset, 0, 304), new Vector3(xOffset + 16, 0, 304), activeInput, onInputChange);
-				CreateWire(new Vector3(xOffset + 16, 0, 304), new Vector3(xOffset + 16, 0, 312), activeInput, onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 256), new Vector3(xOffset, 0, 344), onInputChange);
+				CreateWire(new Vector3(xOffset + 16, 0, 256), new Vector3(xOffset + 16, 0, 272), onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 344), new Vector3(xOffset + 16, 0, 344), onInputChange);
+				CreateWire(new Vector3(xOffset + 16, 0, 344), new Vector3(xOffset + 16, 0, 352), onInputChange);
+				CreateWire(new Vector3(xOffset, 0, 304), new Vector3(xOffset + 16, 0, 304), onInputChange);
+				CreateWire(new Vector3(xOffset + 16, 0, 304), new Vector3(xOffset + 16, 0, 312), onInputChange);
 			}
 
 			// grid output {i}
-			bool activeOutput = i == 4;
-			System.Func<CircuitState, bool> onOutputChanged = (state) => state.powergridStart <= iLock && state.powergridEnd == iLock;
-			if (i % 2 == 0) CreateWire(new Vector3(xOffset + 16, 0, 376), new Vector3(xOffset + 32, 0, 376), activeOutput, onOutputChanged);
-			else CreateWire(new Vector3(xOffset + 32, 0, 376), new Vector3(xOffset + 8, 0, 376), activeOutput, onOutputChanged);
+			System.Func<CircuitState, bool> onOutputChanged = (state) => state.powergridActive && state.powergridStart <= iLock && state.powergridEnd == iLock;
+			if (i % 2 == 0) CreateWire(new Vector3(xOffset + 16, 0, 376), new Vector3(xOffset + 32, 0, 376), onOutputChanged);
+			else CreateWire(new Vector3(xOffset + 32, 0, 376), new Vector3(xOffset + 8, 0, 376), onOutputChanged);
 			if (i < 7) {
-				CreateWire(new Vector3(xOffset + 16, 0, 288), new Vector3(xOffset + 16, 0, 296), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 16, 0, 296), new Vector3(xOffset + 32, 0, 296), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 32, 0, 296), new Vector3(xOffset + 32, 0, 376), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 16, 0, 328), new Vector3(xOffset + 16, 0, 336), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 16, 0, 336), new Vector3(xOffset + 32, 0, 336), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 16, 0, 368), new Vector3(xOffset + 16, 0, 376), activeOutput, onOutputChanged);
+				CreateWire(new Vector3(xOffset + 16, 0, 288), new Vector3(xOffset + 16, 0, 296), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 16, 0, 296), new Vector3(xOffset + 32, 0, 296), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 32, 0, 296), new Vector3(xOffset + 32, 0, 376), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 16, 0, 328), new Vector3(xOffset + 16, 0, 336), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 16, 0, 336), new Vector3(xOffset + 32, 0, 336), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 16, 0, 368), new Vector3(xOffset + 16, 0, 376), onOutputChanged);
 			} else {
-				CreateWire(new Vector3(xOffset + 32, 0, 280), new Vector3(xOffset + 32, 0, 376), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 24, 0, 280), new Vector3(xOffset + 32, 0, 280), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 24, 0, 320), new Vector3(xOffset + 32, 0, 320), activeOutput, onOutputChanged);
-				CreateWire(new Vector3(xOffset + 24, 0, 360), new Vector3(xOffset + 32, 0, 360), activeOutput, onOutputChanged);
+				CreateWire(new Vector3(xOffset + 32, 0, 280), new Vector3(xOffset + 32, 0, 376), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 24, 0, 280), new Vector3(xOffset + 32, 0, 280), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 24, 0, 320), new Vector3(xOffset + 32, 0, 320), onOutputChanged);
+				CreateWire(new Vector3(xOffset + 24, 0, 360), new Vector3(xOffset + 32, 0, 360), onOutputChanged);
 			}
 			if (i < 7) {
 
 				// grid {i}-{i+1}
-				bool activeWay = i == 3;
-				System.Func<CircuitState, bool> onWayChanged = (state) => iLock >= state.powergridStart && state.powergridEnd > iLock;
-				CreateWire(new Vector3(xOffset + 24, 0, 280), new Vector3(xOffset + 48, 0, 280), activeWay, onWayChanged);
-				CreateWire(new Vector3(xOffset + 24, 0, 320), new Vector3(xOffset + 48, 0, 320), activeWay, onWayChanged);
-				CreateWire(new Vector3(xOffset + 24, 0, 360), new Vector3(xOffset + 48, 0, 360), activeWay, onWayChanged);
+				System.Func<CircuitState, bool> onWayChanged = (state) => state.powergridActive && iLock >= state.powergridStart && state.powergridEnd > iLock;
+				CreateWire(new Vector3(xOffset + 24, 0, 280), new Vector3(xOffset + 48, 0, 280), onWayChanged);
+				CreateWire(new Vector3(xOffset + 24, 0, 320), new Vector3(xOffset + 48, 0, 320), onWayChanged);
+				CreateWire(new Vector3(xOffset + 24, 0, 360), new Vector3(xOffset + 48, 0, 360), onWayChanged);
 
 			}
 
-			for (int j = 0; j < 3; j++) CreatePowerSource(new Vector3(120 + i * 40, 0, 280 + j * 40), i == 3 || i == 4);
+			for (int j = 0; j < 3; j++) _powerSources[i][j] = CreatePowerSource(new Vector3(120 + i * 40, 0, 280 + j * 40));
 		}
-		CreateWire(new Vector3(144, 0, 396), new Vector3(144, 0, 408), false, (state) => state.powergridActive && state.powergridEnd < 3); // grid output 1-2
-		CreateWire(new Vector3(144, 0, 408), new Vector3(176, 0, 408), false, (state) => state.powergridActive && state.powergridEnd < 3); // grid output 1-2
-		CreateWire(new Vector3(224, 0, 392), new Vector3(224, 0, 408), false, (state) => ( // grid output 3-4
+		CreateWire(new Vector3(144, 0, 396), new Vector3(144, 0, 408), (state) => state.powergridActive && state.powergridEnd < 3); // grid output 1-2
+		CreateWire(new Vector3(144, 0, 408), new Vector3(176, 0, 408), (state) => state.powergridActive && state.powergridEnd < 3); // grid output 1-2
+		CreateWire(new Vector3(224, 0, 392), new Vector3(224, 0, 408), (state) => ( // grid output 3-4
 			state.powergridActive && state.powergridEnd > 2 && state.powergridEnd < 5
 		));
-		CreateWire(new Vector3(224, 0, 408), new Vector3(192, 0, 408), false, (state) => ( // grid output 3-4
+		CreateWire(new Vector3(224, 0, 408), new Vector3(192, 0, 408), (state) => ( // grid output 3-4
 			state.powergridActive && state.powergridEnd > 2 && state.powergridEnd < 5
 		));
-		CreateWire(new Vector3(304, 0, 396), new Vector3(304, 0, 408), true, (state) => ( // grid output 5-6
+		CreateWire(new Vector3(304, 0, 396), new Vector3(304, 0, 408), (state) => ( // grid output 5-6
 			state.powergridActive && state.powergridEnd > 4 && state.powergridEnd < 7
 		));
-		CreateWire(new Vector3(304, 0, 408), new Vector3(336, 0, 408), true, (state) => ( // grid output 5-6
+		CreateWire(new Vector3(304, 0, 408), new Vector3(336, 0, 408), (state) => ( // grid output 5-6
 			state.powergridActive && state.powergridEnd > 4 && state.powergridEnd < 7
 		));
-		CreateWire(new Vector3(384, 0, 396), new Vector3(384, 0, 408), false, (state) => state.powergridActive && state.powergridEnd > 6); // grid output 7-8
-		CreateWire(new Vector3(384, 0, 408), new Vector3(352, 0, 408), false, (state) => state.powergridActive && state.powergridEnd > 6); // grid output 7-8
-		CreateWire(new Vector3(184, 0, 424), new Vector3(184, 0, 440), false, (state) => state.powergridActive && state.powergridEnd < 5); // grid output 1-4
-		CreateWire(new Vector3(184, 0, 440), new Vector3(256, 0, 440), false, (state) => state.powergridActive && state.powergridEnd < 5); // grid output 1-4
-		CreateWire(new Vector3(344, 0, 424), new Vector3(344, 0, 440), true, (state) => state.powergridActive && state.powergridEnd > 4); // grid output 5-8
-		CreateWire(new Vector3(344, 0, 440), new Vector3(272, 0, 440), true, (state) => state.powergridActive && state.powergridEnd > 4); // grid output 5-8
-		CreateWire(new Vector3(264, 0, 456), new Vector3(80, 0, 456), true); // grid => battery | statuslight
-		CreateWire(new Vector3(80, 0, 456), new Vector3(80, 0, 136), true); // grid => battery | statuslight
-		CreateWire(new Vector3(80, 0, 136), new Vector3(104, 0, 136), false); // grid => battery
-		CreateWire(new Vector3(104, 0, 136), new Vector3(120, 0, 136), true); // grid => battery || discharge
+		CreateWire(new Vector3(384, 0, 396), new Vector3(384, 0, 408), (state) => state.powergridActive && state.powergridEnd > 6); // grid output 7-8
+		CreateWire(new Vector3(384, 0, 408), new Vector3(352, 0, 408), (state) => state.powergridActive && state.powergridEnd > 6); // grid output 7-8
+		CreateWire(new Vector3(184, 0, 424), new Vector3(184, 0, 440), (state) => state.powergridActive && state.powergridEnd < 5); // grid output 1-4
+		CreateWire(new Vector3(184, 0, 440), new Vector3(256, 0, 440), (state) => state.powergridActive && state.powergridEnd < 5); // grid output 1-4
+		CreateWire(new Vector3(344, 0, 424), new Vector3(344, 0, 440), (state) => state.powergridActive && state.powergridEnd > 4); // grid output 5-8
+		CreateWire(new Vector3(344, 0, 440), new Vector3(272, 0, 440), (state) => state.powergridActive && state.powergridEnd > 4); // grid output 5-8
+		CreateWire(new Vector3(264, 0, 456), new Vector3(80, 0, 456), (state) => state.powergridActive); // grid => battery | statuslight
+		CreateWire(new Vector3(80, 0, 456), new Vector3(80, 0, 136), (state) => state.powergridActive); // grid => battery | statuslight
+		CreateWire(new Vector3(80, 0, 136), new Vector3(104, 0, 136), (state) => ( // grid => battery || battery => statuslight
+			(state.powergridActive && state.crossState == CircuitState.CrossState.CHARGE) || state.crossState == CircuitState.CrossState.SUBMIT
+		));
+		CreateWire(new Vector3(104, 0, 136), new Vector3(120, 0, 136), (state) => { // grid => battery || discharge || battery => statuslight
+			if (state.powergridActive && state.crossState == CircuitState.CrossState.CHARGE) return true;
+			if (state.discharge && Battery.charge > 0) return true;
+			return state.crossState == CircuitState.CrossState.SUBMIT;
+		});
+		CreateWire(new Vector3(80, 0, 136), new Vector3(80, 0, 56), (state) => ( // grid | battery => statuslight
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(80, 0, 56), new Vector3(344, 0, 56), (state) => ( // grid | battery => statuslight
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(344, 0, 56), new Vector3(344, 0, 64), (state) => ( // grid | battery => statuslight
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(344, 0, 64), new Vector3(448, 0, 64), (state) => ( // grid | battery => statuslight
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(304, 0, 184), new Vector3(384, 0, 184), (state) => ( // statuslight => grid
+			state.crossState == CircuitState.CrossState.STATUS && state.powergridActive
+		));
+		CreateWire(new Vector3(360, 0, 168), new Vector3(384, 0, 168), (state) => state.crossState == CircuitState.CrossState.SUBMIT); // battery => statuslight
+		CreateWire(new Vector3(400, 0, 176), new Vector3(448, 0, 176), (state) => ( // statuslight => grid | battery
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(448, 0, 176), new Vector3(448, 0, 64), (state) => ( // statuslight => grid | battery
+			state.crossState == CircuitState.CrossState.SUBMIT || (state.crossState == CircuitState.CrossState.STATUS && state.powergridActive)
+		));
+		CreateWire(new Vector3(312, 0, 128), new Vector3(312, 0, 72), (state) => state.discharge && Battery.charge > 0); // discharge
+		CreateWire(new Vector3(312, 0, 72), new Vector3(136, 0, 72), (state) => state.discharge && Battery.charge > 0); // discharge
+		for (int i = 0; i < 9; i++) {
+			float x = 136 + i * 16;
+			CreateWire(new Vector3(x, 0, 72), new Vector3(x, 0, 104), (state) => state.discharge && Battery.charge > 0); // discharge
+			ResistorComponent resistor = Instantiate(ResistorPrefab);
+			resistor.transform.parent = ObjectsContainer.transform;
+			resistor.transform.localPosition = new Vector3(x, 0, 424);
+			resistor.transform.localScale = Vector3.one;
+			resistor.transform.localRotation = Quaternion.identity;
+			resistor.active = true;
+			resistors.Add(resistor);
+		}
+		CreateWire(new Vector3(264, 0, 104), new Vector3(104, 0, 104), (state) => state.discharge && Battery.charge > 0); // discharge
+		CreateWire(new Vector3(104, 0, 104), new Vector3(104, 0, 136), (state) => state.discharge && Battery.charge > 0); // discharge
 
-		_switches[0] = CreateSwitch(new Vector3(296, 0, 136), 0, false, (s) => { }); // switch 1
-		_switches[1] = CreateSwitch(new Vector3(352, 0, 152), 90, false, (s) => { }); // switch 2
-		_switches[2] = CreateSwitch(new Vector3(288, 0, 176), 0, false, (s) => { }); // switch 3
-		_switches[3] = CreateSwitch(new Vector3(400, 0, 176), 180, true, (s) => { }); // switch 4
-		_switches[4] = CreateSwitch(new Vector3(256, 0, 176), 90, false, (s) => { // switch input 1-8
-			if (s.state) {
-				if (_switches[6].state) state.powergridStart = _switches[14].state ? 8 : 7;
-				else state.powergridStart = _switches[13].state ? 6 : 5;
-			} else {
-				if (_switches[5].state) state.powergridStart = _switches[8].state ? 4 : 3;
-				else state.powergridStart = _switches[7].state ? 2 : 1;
-			}
-		});
-		_switches[5] = CreateSwitch(new Vector3(176, 0, 208), 90, true, (s) => { // switch input 1-4
-			if (state.powergridStart > 4) return;
-			if (s.state) state.powergridStart = _switches[8].state ? 4 : 3;
-			else state.powergridStart = _switches[7].state ? 2 : 1;
-		});
-		_switches[6] = CreateSwitch(new Vector3(336, 0, 208), 90, Random.Range(0, 2) == 0, (s) => { // switch input 5-8
-			if (state.powergridStart < 5) return;
-			if (s.state) state.powergridStart = _switches[10].state ? 8 : 7;
-			else state.powergridStart = _switches[9].state ? 6 : 5;
-		});
-		_switches[7] = CreateSwitch(new Vector3(136, 0, 240), 90, Random.Range(0, 2) == 0, (s) => { // switch input 1-2
-			if (state.powergridStart > 2) return;
-			state.powergridStart = s.state ? 2 : 1;
-		});
-		_switches[8] = CreateSwitch(new Vector3(216, 0, 240), 90, true, (s) => { // switch input 3-4
-			if (state.powergridStart > 4 || state.powergridStart < 3) return;
-			state.powergridStart = s.state ? 4 : 3;
-		});
-		_switches[9] = CreateSwitch(new Vector3(296, 0, 240), 90, Random.Range(0, 2) == 0, (s) => { // switch input 5-6
-			if (state.powergridStart > 6 || state.powergridStart < 5) return;
-			state.powergridStart = s.state ? 6 : 5;
-		});
-		_switches[10] = CreateSwitch(new Vector3(376, 0, 240), 90, Random.Range(0, 2) == 0, (s) => { // switch input 7-8
-			if (state.powergridStart < 7) return;
-			state.powergridStart = s.state ? 8 : 7;
-		});
-		_switches[11] = CreateSwitch(new Vector3(144, 0, 392), 270, Random.Range(0, 2) == 0, (s) => { // switch output 1-2
-			if (state.powergridEnd > 2) return;
-			state.powergridEnd = s.state ? 1 : 2;
-		});
-		_switches[12] = CreateSwitch(new Vector3(224, 0, 392), 270, Random.Range(0, 2) == 0, (s) => { // switch output 3-4
-			if (state.powergridEnd < 3 || state.powergridEnd > 4) return;
-			state.powergridEnd = s.state ? 3 : 4;
-		});
-		_switches[13] = CreateSwitch(new Vector3(304, 0, 392), 270, true, (s) => { // switch output 5-6
-			if (state.powergridEnd < 5 || state.powergridEnd > 6) return;
-			state.powergridEnd = s.state ? 5 : 6;
-		});
-		_switches[14] = CreateSwitch(new Vector3(384, 0, 392), 270, Random.Range(0, 2) == 0, (s) => { // switch output 7-8
-			if (state.powergridEnd < 7) return;
-			state.powergridEnd = s.state ? 7 : 8;
-		});
-		_switches[15] = CreateSwitch(new Vector3(184, 0, 424), 270, Random.Range(0, 2) == 0, (s) => { // switch output 1-4
-			if (state.powergridEnd > 4) return;
-			if (s.state) state.powergridEnd = _switches[11].state ? 1 : 2;
-			else state.powergridEnd = _switches[12].state ? 3 : 4;
-		});
-		_switches[16] = CreateSwitch(new Vector3(344, 0, 424), 270, true, (s) => { // switch output 5-8
-			if (state.powergridEnd < 5) return;
-			if (s.state) state.powergridEnd = _switches[13].state ? 5 : 6;
-			else state.powergridEnd = _switches[14].state ? 7 : 8;
-		});
-		_switches[17] = CreateSwitch(new Vector3(264, 0, 456), 270, false, (s) => { // switch output 1-8
-			if (s.state) {
-				if (_switches[15].state) state.powergridEnd = _switches[11].state ? 1 : 2;
-				else state.powergridEnd = _switches[12].state ? 3 : 4;
-			} else {
-				if (_switches[16].state) state.powergridEnd = _switches[13].state ? 5 : 6;
-				else state.powergridEnd = _switches[14].state ? 7 : 8;
-			}
-		});
+		_switches[0] = CreateSwitch(new Vector3(296, 0, 136), 0, false);
+		_switches[1] = CreateSwitch(new Vector3(352, 0, 152), 90, false);
+		_switches[2] = CreateSwitch(new Vector3(288, 0, 176), 0, false);
+		_switches[3] = CreateSwitch(new Vector3(400, 0, 176), 180, true);
+		_switches[4] = CreateSwitch(new Vector3(256, 0, 176), 90, false); // switch input 1-8
+		_switches[5] = CreateSwitch(new Vector3(176, 0, 208), 90, true); // switch input 1-4
+		_switches[6] = CreateSwitch(new Vector3(336, 0, 208), 90, Random.Range(0, 2) == 0); // switch input 5-8
+		_switches[7] = CreateSwitch(new Vector3(136, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 1-2
+		_switches[8] = CreateSwitch(new Vector3(216, 0, 240), 90, true); // switch input 3-4
+		_switches[9] = CreateSwitch(new Vector3(296, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 5-6
+		_switches[10] = CreateSwitch(new Vector3(376, 0, 240), 90, Random.Range(0, 2) == 0); // switch input 7-8
+		_switches[11] = CreateSwitch(new Vector3(144, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 1-2
+		_switches[12] = CreateSwitch(new Vector3(224, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 3-4
+		_switches[13] = CreateSwitch(new Vector3(304, 0, 392), 270, true); // switch output 5-6
+		_switches[14] = CreateSwitch(new Vector3(384, 0, 392), 270, Random.Range(0, 2) == 0); // switch output 7-8
+		_switches[15] = CreateSwitch(new Vector3(184, 0, 424), 270, Random.Range(0, 2) == 0); // switch output 1-4
+		_switches[16] = CreateSwitch(new Vector3(344, 0, 424), 270, true); // switch output 5-8
+		_switches[17] = CreateSwitch(new Vector3(264, 0, 456), 270, false); // switch output 1-8
 
 		Selectable.Children = _switches.Select((s) => s.Selectable).ToArray();
 		Selectable.UpdateChildren();
+		UpdateSwitches();
+		Module.OnActivate += Activate;
 	}
 
-	private WireComponent CreateWire(Vector3 from, Vector3 to, bool defaultActive, System.Func<CircuitState, bool> onChange = null) {
+	private void Activate() {
+		startingTimeInMinutes = Mathf.FloorToInt(BombInfo.GetTime() / 60);
+		ChargePuzzle.Info info = new ChargePuzzle.Info(BombInfo, startingTimeInMinutes);
+		puzzle.UpdateValidities(info);
+		for (int i = 0; i < ChargePuzzle.WIDTH; i++) for (int j = 0; j < ChargePuzzle.HEIGHT; j++) _powerSources[i][j].color = puzzle.GetColor(i, j);
+		UpdateSwitches();
+		Battery.required = puzzle.requiredChargeLevel;
+		Lock.active = false;
+		activated = true;
+	}
+
+	private void Update() {
+		if (!lightScaleSet) {
+			Vector3 scale = transform.lossyScale;
+			StatusLightSource.range = 0.05f * Mathf.Max(scale.x, scale.y, scale.z);
+			lightScaleSet = true;
+		}
+		ChargePuzzle.Info info = new ChargePuzzle.Info(BombInfo, startingTimeInMinutes);
+		puzzle.UpdateDynamicValidities(info);
+		for (int i = 0; i < ChargePuzzle.WIDTH; i++) for (int j = 0; j < ChargePuzzle.HEIGHT; j++) _powerSources[i][j].color = puzzle.GetColor(i, j);
+		if (solved) return;
+		if (Lock.active) {
+			if (Time.time >= lockingStartsAt + 1f) {
+				Lock.active = false;
+				_switches[state.discharge ? 0 : 2].state = false;
+				UpdateSwitches();
+				Battery.charge = chargeTo;
+			} else Battery.charge = Mathf.FloorToInt(chargeFrom + (chargeTo - chargeFrom) * (Time.time - lockingStartsAt));
+		}
+	}
+
+	private WireComponent CreateWire(Vector3 from, Vector3 to, System.Func<CircuitState, bool> onChange = null) {
 		WireComponent result = Instantiate(WirePrefab);
 		result.transform.parent = ObjectsContainer.transform;
 		from.z = 512 - from.z;
 		to.z = 512 - to.z;
 		result.position = new KeyValuePair<Vector3, Vector3>(from, to);
-		result.active = defaultActive;
+		result.active = true;
 		result.OnChange = onChange;
 		wires.Add(result);
 		return result;
 	}
 
-	private PowerSourceComponent CreatePowerSource(Vector3 pos, bool active = false) {
+	private PowerSourceComponent CreatePowerSource(Vector3 pos) {
 		PowerSourceComponent result = Instantiate(PowerSourcePrefab);
 		result.transform.parent = ObjectsContainer.transform;
 		pos.z = 512 - pos.z;
@@ -217,11 +290,11 @@ public class ChargeModule : MonoBehaviour {
 		result.transform.localScale = Vector3.one;
 		result.transform.localRotation = Quaternion.identity;
 		result.color = new KeyValuePair<Color, Color>(Random.ColorHSV(), Random.ColorHSV());
-		result.active = active;
+		result.active = true;
 		return result;
 	}
 
-	private SwitchComponent CreateSwitch(Vector3 pos, float rotation, bool defaultState, System.Action<SwitchComponent> onChanged) {
+	private SwitchComponent CreateSwitch(Vector3 pos, float rotation, bool defaultState) {
 		SwitchComponent result = Instantiate(SwitchPrefab);
 		result.transform.parent = ObjectsContainer.transform;
 		pos.z = 512 - pos.z;
@@ -231,11 +304,99 @@ public class ChargeModule : MonoBehaviour {
 		result.state = defaultState;
 		result.Selectable.Parent = Selectable;
 		result.Selectable.OnInteract = () => {
+			if (Lock.active) return false;
 			result.state = !result.state;
-			onChanged(result);
-			foreach (WireComponent wire in wires) wire.UpdateActivity(state);
+			UpdateSwitches();
 			return false;
 		};
 		return result;
+	}
+
+	private void UpdateCrossSwitches() {
+		state.crossState = CircuitState.CrossState.NONE;
+		if (_switches[0].state) state.discharge = true;
+		else {
+			state.discharge = false;
+			if (!_switches[1].state && _switches[2].state) {
+				state.crossState = CircuitState.CrossState.CHARGE;
+				return;
+			}
+			if (_switches[1].state && !_switches[3].state) {
+				state.crossState = CircuitState.CrossState.SUBMIT;
+				return;
+			}
+		}
+		if (_switches[3].state && !_switches[2].state) state.crossState = CircuitState.CrossState.STATUS;
+	}
+
+	private void UpdateSwitches() {
+		UpdateCrossSwitches();
+		if (_switches[4].state) {
+			if (_switches[6].state) state.powergridStart = _switches[10].state ? 8 : 7;
+			else state.powergridStart = _switches[9].state ? 6 : 5;
+		} else {
+			if (_switches[5].state) state.powergridStart = _switches[8].state ? 4 : 3;
+			else state.powergridStart = _switches[7].state ? 2 : 1;
+		}
+		if (_switches[17].state) {
+			if (_switches[15].state) state.powergridEnd = _switches[11].state ? 1 : 2;
+			else state.powergridEnd = _switches[12].state ? 3 : 4;
+		} else {
+			if (_switches[16].state) state.powergridEnd = _switches[13].state ? 5 : 6;
+			else state.powergridEnd = _switches[14].state ? 7 : 8;
+		}
+		state.UpdateActivity(puzzle);
+		if (state.crossState == CircuitState.CrossState.CHARGE) {
+			KeyValuePair<int, int> conn = new KeyValuePair<int, int>(state.powergridStart - 1, state.powergridEnd - 1);
+			if (usedConnections.Contains(conn) || !puzzle.allowedConnections.Contains(conn)) {
+				Debug.LogFormat("[Charge #{0}] Using forbidden connection {1}-{2}. Strike!", moduleId, state.powergridStart, state.powergridEnd);
+				_switches[2].state = false;
+				UpdateSwitches();
+				Module.HandleStrike();
+				return;
+			}
+			usedConnections.Add(conn);
+			Lock.active = true;
+			chargeFrom = Battery.charge;
+			int power = puzzle.GetConnectionPower(conn);
+			chargeTo = chargeFrom + power;
+			Debug.LogFormat("[Charge #{0}] Using connection {1}-{2} ({3} W). Battery level = {4} J", moduleId, state.powergridStart, state.powergridEnd, power, chargeTo);
+			lockingStartsAt = Time.time;
+			Audio.PlaySoundAtTransform(ChargeSound.name, Battery.transform);
+		} else if (state.crossState == CircuitState.CrossState.SUBMIT) {
+			if (Battery.charge == Battery.required) {
+				Debug.LogFormat("[Charge #{0}] Module solved", moduleId);
+				Module.HandlePass();
+				solved = true;
+				Lock.active = true;
+				Audio.PlayGameSoundAtTransform(KMSoundOverride.SoundEffect.CorrectChime, StatusLightSource.transform);
+			} else {
+				Debug.LogFormat("[Charge #{0}] Submitted {1} J. Expected {2} J. Strike!", moduleId, Battery.charge, Battery.required);
+				_switches[3].state = true;
+				UpdateSwitches();
+				Module.HandleStrike();
+				return;
+			}
+		} else if (state.discharge) {
+			Debug.LogFormat("[Charge #{0}] Battery discharged", moduleId);
+			usedConnections = new HashSet<KeyValuePair<int, int>>();
+			Lock.active = true;
+			chargeFrom = Battery.charge;
+			chargeTo = 0;
+			lockingStartsAt = Time.time;
+			Audio.PlaySoundAtTransform(ChargeSound.name, Battery.transform);
+		}
+		Audio.PlaySoundAtTransform(SwitchSounds.PickRandom().name, transform);
+		foreach (WireComponent wire in wires) wire.UpdateActivity(state);
+		Battery.active = state.crossState == CircuitState.CrossState.SUBMIT || state.crossState == CircuitState.CrossState.CHARGE || state.discharge;
+		for (int i = 0; i < ChargePuzzle.WIDTH; i++) {
+			for (int j = 0; j < ChargePuzzle.HEIGHT; j++) {
+				_powerSources[i][j].active = state.powergridActive && i + 1 >= state.powergridStart && i < state.powergridEnd;
+			}
+		}
+		bool light = state.powergridActive && state.crossState == CircuitState.CrossState.STATUS;
+		StatusLightRenderer.material = light ? StatusLightLitMaterial : defaultStatusLightMaterial;
+		StatusLightSource.gameObject.SetActive(light);
+		foreach (ResistorComponent resistor in resistors) resistor.active = state.discharge && Battery.charge > 0;
 	}
 }

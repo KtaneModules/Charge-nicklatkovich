@@ -8,7 +8,13 @@ public class PowerSourceComponent : MonoBehaviour {
 	private KeyValuePair<Color, Color> _color;
 	public KeyValuePair<Color, Color> color {
 		get { return _color; }
-		set { if (firstFlash ? (_color.Key == value.Key) : (_color.Value == value.Value)) return; _color = value; nextUpdateTime = 0; firstFlash = Random.Range(0, 2) == 0; }
+		set {
+			if (_color.Key == value.Key && _color.Value == value.Value) return;
+			_color = value;
+			if (firstFlash ? (_color.Key == value.Key) : (_color.Value == value.Value)) return;
+			nextUpdateTime = 0;
+			firstFlash = Random.Range(0, 2) == 0;
+		}
 	}
 
 	private bool _active; public bool active { get { return _active; } set { if (_active == value) return; _active = value; UpdateBorderColor(); } }

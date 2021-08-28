@@ -30,7 +30,7 @@ public class WireComponent : MonoBehaviour {
 
 	private void Transform() {
 		transform.localPosition = (from + to) / 2;
-		transform.localScale = new Vector3(WIDTH, WIDTH, (from - to).magnitude + WIDTH);
+		transform.localScale = new Vector3(WIDTH + .2f, WIDTH, (from - to).magnitude + WIDTH);
 		transform.localRotation = Quaternion.LookRotation(to - from, Vector3.up);
 	}
 }
