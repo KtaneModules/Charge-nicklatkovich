@@ -1901,14 +1901,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ObjectsContainer: {fileID: 1118798684708786}
-  StatusLight: {fileID: 1668611984396158}
+  StatusLightParent: {fileID: 1668611984396158}
   StatusLightLitMaterial: {fileID: 2100000, guid: 0afb884f2730dde488e17461e0550ab6,
     type: 2}
   SwitchSounds:
   - {fileID: 8300000, guid: d1675d1e0d4671b4ebdca27af6301af5, type: 3}
   - {fileID: 8300000, guid: 484f8474e5c28ef4aa20b31f8a53507a, type: 3}
   - {fileID: 8300000, guid: 3e92282cadf210b4d9ad74d0dfe7fd1d, type: 3}
-  ChargeSound: {fileID: 8300000, guid: 19193849077712b47b07532dc9f18dbe, type: 3}
   Selectable: {fileID: 114930672627241186}
   Module: {fileID: 114384134430598626}
   BombInfo: {fileID: 114156750540253974}
@@ -1923,6 +1922,7 @@ MonoBehaviour:
     type: 2}
   Battery: {fileID: 114377331662403016}
   Lock: {fileID: 114997706711595390}
+  TwitchShouldCancelCommand: 0
 --- !u!114 &114209781027245804
 MonoBehaviour:
   m_ObjectHideFlags: 1

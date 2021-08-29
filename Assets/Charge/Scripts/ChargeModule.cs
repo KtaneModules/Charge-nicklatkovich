@@ -1,12 +1,14 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 public class ChargeModule : MonoBehaviour {
 	private static int moduleIdCounter = 1;
 
 	public GameObject ObjectsContainer;
-	public GameObject StatusLight;
+	public GameObject StatusLightParent;
 	public Material StatusLightLitMaterial;
 	public AudioClip[] SwitchSounds;
 	public KMSelectable Selectable;
@@ -19,6 +21,15 @@ public class ChargeModule : MonoBehaviour {
 	public ResistorComponent ResistorPrefab;
 	public BatteryComponent Battery;
 	public LockComponent Lock;
+
+	public readonly string TwitchHelpMessage = new string[] {
+		"\"!{0} 14;3;2;4\" - press switches",
+		"See manual to get the id of each switch",
+		"If the locking is enabled, the module will wait for its end before using the next switch",
+		"This command is cancelable",
+	}.Join(". ");
+
+	public bool TwitchShouldCancelCommand;
 
 	private bool lightScaleSet = false;
 	private bool solved = false;
@@ -36,7 +47,7 @@ public class ChargeModule : MonoBehaviour {
 	private List<WireComponent> wires = new List<WireComponent>();
 	private List<ResistorComponent> resistors = new List<ResistorComponent>();
 	private Light StatusLightSource;
-	private Renderer StatusLightRenderer;
+	private Renderer StatusLightOffRenderer;
 	private HashSet<KeyValuePair<int, int>> usedConnections = new HashSet<KeyValuePair<int, int>>();
 
 	private void Start() {
@@ -53,11 +64,14 @@ public class ChargeModule : MonoBehaviour {
 			string.Format("{0}-{1}", conn.Key + 1, conn.Value + 1)
 		)).Join("; "));
 		for (int i = 0; i < ChargePuzzle.WIDTH; i++) _powerSources[i] = new PowerSourceComponent[ChargePuzzle.HEIGHT];
-		StatusLightSource = StatusLight.transform.GetChild(0).GetComponent<Light>();
-		StatusLightRenderer = StatusLight.transform.GetChild(1).GetChild(Application.isEditor ? 2 : 0).GetComponent<Renderer>();
-		StatusLightSource.transform.parent = StatusLightRenderer.transform;
-		defaultStatusLightMaterial = StatusLightRenderer.material;
-		StatusLightRenderer.material = StatusLightLitMaterial;
+		StatusLightSource = StatusLightParent.transform.GetChild(0).GetComponent<Light>();
+		Transform statusLightCollection = Enumerable.Range(0, StatusLightParent.transform.childCount).Select((i) => StatusLightParent.transform.GetChild(i)).First((c) => (
+			c.name.ToLower().StartsWith("statuslight")
+		));
+		StatusLightOffRenderer = statusLightCollection.GetChild(Application.isEditor ? 2 : 0).GetComponent<Renderer>();
+		StatusLightSource.transform.parent = StatusLightOffRenderer.transform;
+		defaultStatusLightMaterial = StatusLightOffRenderer.material;
+		StatusLightOffRenderer.material = StatusLightLitMaterial;
 		CreateWire(new Vector3(280, 0, 136), new Vector3(296, 0, 136), (state) => { // battery => grid | statulight || discharge
 			if (state.discharge && Battery.charge > 0) return true;
 			if (state.crossState == CircuitState.CrossState.CHARGE && state.powergridActive) return true;
@@ -268,6 +282,71 @@ public class ChargeModule : MonoBehaviour {
 		}
 	}
 
+	public IEnumerator ProcessTwitchCommand(string command) {
+		if (solved || !activated) yield break;
+		command = command.Trim().ToLower();
+		if (!Regex.IsMatch(command, @"^(([1-9]|1[0-8]) *(;|$) *)+$")) yield break;
+		command = command.Split(' ').Where((s) => s.Length > 0).Join("");
+		if (command.EndsWith(";")) command = command.Take(command.Length - 1).Join("");
+		int[] indices = command.Split(';').Select((s) => int.Parse(s)).ToArray();
+		yield return null;
+		int i = 0;
+		while (i < indices.Length) {
+			if (TwitchShouldCancelCommand) {
+				yield return "cancelled";
+				yield break;
+			}
+			if (!Lock.active) {
+				int index = indices[i];
+				yield return new[] { _switches[index - 1].Selectable };
+				i += 1;
+			}
+			yield return null;
+		}
+	}
+
+	private IEnumerator TwitchHandleForcedSolve() {
+		yield return null;
+		while (Lock.active) yield return new WaitForSeconds(.1f);
+		if (Battery.charge > 0) {
+			_switches[0].state = !_switches[0].state;
+			UpdateSwitches(true);
+			while (Lock.active) yield return new WaitForSeconds(.1f);
+		}
+		foreach (KeyValuePair<int, int> conn in puzzle.solutionExample) {
+			List<int> _switchesToPress = new List<int>();
+			if (_switches[4].state != conn.Key > 3) _switchesToPress.Add(4);
+			int level2switch = 5 + conn.Key / 4;
+			if (_switches[level2switch].state != conn.Key % 4 > 1) _switchesToPress.Add(level2switch);
+			int level3switch = 7 + conn.Key / 2;
+			if (_switches[level3switch].state != conn.Key % 2 > 0) _switchesToPress.Add(level3switch);
+			if (_switches[17].state != conn.Value < 4) _switchesToPress.Add(17);
+			int level5switch = 15 + conn.Value / 4;
+			if (_switches[level5switch].state != conn.Value % 4 < 2) _switchesToPress.Add(level5switch);
+			int level4switch = 11 + conn.Value / 2;
+			if (_switches[level4switch].state != conn.Value % 2 < 1) _switchesToPress.Add(level4switch);
+			if (_switches[1].state) _switchesToPress.Add(1);
+			if (!_switches[2].state) _switchesToPress.Add(2);
+			foreach (int _switchIndex in _switchesToPress) {
+				_switches[_switchIndex].state = !_switches[_switchIndex].state;
+				UpdateSwitches(true);
+				yield return new WaitForSeconds(.1f);
+			}
+			while (Lock.active) yield return new WaitForSeconds(.1f);
+		}
+		if (!_switches[1].state) {
+			_switches[1].state = !_switches[1].state;
+			UpdateSwitches(true);
+			yield return new WaitForSeconds(.1f);
+		}
+		if (_switches[3].state) {
+			_switches[3].state = !_switches[3].state;
+			UpdateSwitches(true);
+			yield return new WaitForSeconds(.1f);
+		}
+		while (Lock.active) yield return new WaitForSeconds(.1f);
+	}
+
 	private WireComponent CreateWire(Vector3 from, Vector3 to, System.Func<CircuitState, bool> onChange = null) {
 		WireComponent result = Instantiate(WirePrefab);
 		result.transform.parent = ObjectsContainer.transform;
@@ -391,7 +470,7 @@ public class ChargeModule : MonoBehaviour {
 			}
 		}
 		bool light = state.powergridActive && state.crossState == CircuitState.CrossState.STATUS;
-		StatusLightRenderer.material = light ? StatusLightLitMaterial : defaultStatusLightMaterial;
+		StatusLightOffRenderer.material = light ? StatusLightLitMaterial : defaultStatusLightMaterial;
 		StatusLightSource.gameObject.SetActive(light);
 		foreach (ResistorComponent resistor in resistors) resistor.active = state.discharge && Battery.charge > 0;
 	}
