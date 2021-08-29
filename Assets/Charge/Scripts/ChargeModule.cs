@@ -9,7 +9,6 @@ public class ChargeModule : MonoBehaviour {
 	public GameObject StatusLight;
 	public Material StatusLightLitMaterial;
 	public AudioClip[] SwitchSounds;
-	public AudioClip ChargeSound;
 	public KMSelectable Selectable;
 	public KMBombModule Module;
 	public KMBombInfo BombInfo;
@@ -24,7 +23,6 @@ public class ChargeModule : MonoBehaviour {
 	private bool lightScaleSet = false;
 	private bool solved = false;
 	private bool activated = false;
-	private bool prevPowergridActive = true;
 	private float lockingStartsAt;
 	private int chargeFrom;
 	private int chargeTo;
@@ -259,12 +257,12 @@ public class ChargeModule : MonoBehaviour {
 		ChargePuzzle.Info info = new ChargePuzzle.Info(BombInfo, startingTimeInMinutes);
 		puzzle.UpdateDynamicValidities(info);
 		for (int i = 0; i < ChargePuzzle.WIDTH; i++) for (int j = 0; j < ChargePuzzle.HEIGHT; j++) _powerSources[i][j].color = puzzle.GetColor(i, j);
-		if (solved) return;
+		if (solved || !activated) return;
 		if (Lock.active) {
 			if (Time.time >= lockingStartsAt + 1f) {
 				Lock.active = false;
 				_switches[state.discharge ? 0 : 2].state = false;
-				UpdateSwitches();
+				UpdateSwitches(true);
 				Battery.charge = chargeTo;
 			} else Battery.charge = Mathf.FloorToInt(chargeFrom + (chargeTo - chargeFrom) * (Time.time - lockingStartsAt));
 		}
@@ -306,7 +304,7 @@ public class ChargeModule : MonoBehaviour {
 		result.Selectable.OnInteract = () => {
 			if (Lock.active) return false;
 			result.state = !result.state;
-			UpdateSwitches();
+			UpdateSwitches(true);
 			return false;
 		};
 		return result;
@@ -329,7 +327,7 @@ public class ChargeModule : MonoBehaviour {
 		if (_switches[3].state && !_switches[2].state) state.crossState = CircuitState.CrossState.STATUS;
 	}
 
-	private void UpdateSwitches() {
+	private void UpdateSwitches(bool playSounds = false) {
 		UpdateCrossSwitches();
 		if (_switches[4].state) {
 			if (_switches[6].state) state.powergridStart = _switches[10].state ? 8 : 7;
@@ -362,7 +360,6 @@ public class ChargeModule : MonoBehaviour {
 			chargeTo = chargeFrom + power;
 			Debug.LogFormat("[Charge #{0}] Using connection {1}-{2} ({3} W). Battery level = {4} J", moduleId, state.powergridStart, state.powergridEnd, power, chargeTo);
 			lockingStartsAt = Time.time;
-			Audio.PlaySoundAtTransform(ChargeSound.name, Battery.transform);
 		} else if (state.crossState == CircuitState.CrossState.SUBMIT) {
 			if (Battery.charge == Battery.required) {
 				Debug.LogFormat("[Charge #{0}] Module solved", moduleId);
@@ -384,9 +381,8 @@ public class ChargeModule : MonoBehaviour {
 			chargeFrom = Battery.charge;
 			chargeTo = 0;
 			lockingStartsAt = Time.time;
-			Audio.PlaySoundAtTransform(ChargeSound.name, Battery.transform);
 		}
-		Audio.PlaySoundAtTransform(SwitchSounds.PickRandom().name, transform);
+		if (playSounds) Audio.PlaySoundAtTransform(SwitchSounds.PickRandom().name, transform);
 		foreach (WireComponent wire in wires) wire.UpdateActivity(state);
 		Battery.active = state.crossState == CircuitState.CrossState.SUBMIT || state.crossState == CircuitState.CrossState.CHARGE || state.discharge;
 		for (int i = 0; i < ChargePuzzle.WIDTH; i++) {

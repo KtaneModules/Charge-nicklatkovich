@@ -14,7 +14,8 @@ MonoBehaviour:
   id: charge
   title: Charge
   author: NickLatkovich
-  description: 
+  description: Charge the battery to the required level and connect it to the statuslight
+    to solve the module.
   version: 1.0.0
   outputFolder: build
-  previewImage: {fileID: 0}
+  previewImage: {fileID: 2800000, guid: e6bf2568a91f6284da6ac0334e731079, type: 3}
