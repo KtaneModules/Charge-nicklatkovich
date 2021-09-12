@@ -344,7 +344,6 @@ public class ChargeModule : MonoBehaviour {
 			UpdateSwitches(true);
 			yield return new WaitForSeconds(.1f);
 		}
-		while (Lock.active) yield return new WaitForSeconds(.1f);
 	}
 
 	private WireComponent CreateWire(Vector3 from, Vector3 to, System.Func<CircuitState, bool> onChange = null) {
